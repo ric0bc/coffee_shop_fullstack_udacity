@@ -1,6 +1,7 @@
 import os
 from flask import Flask, request, jsonify, abort
 from sqlalchemy import exc
+from sqlalchemy.exc import SQLAlchemyError
 import json
 from flask_cors import CORS
 
@@ -16,7 +17,7 @@ CORS(app)
 !! NOTE THIS WILL DROP ALL RECORDS AND START YOUR DB FROM SCRATCH
 !! NOTE THIS MUST BE UNCOMMENTED ON FIRST RUN
 '''
-# db_drop_and_create_all()
+db_drop_and_create_all()
 
 ## ROUTES
 '''
@@ -29,12 +30,12 @@ CORS(app)
 '''
 @app.route('/drinks')
 def get_drinks():
-    drinks = list(map(Drink.short, Drink.query.all()))
+  drinks = list(map(Drink.short, Drink.query.all()))
 
-    return jsonify({
-        "success": True,
-        "drinks": drinks
-    })
+  return jsonify({
+    "success": True,
+    "drinks": drinks
+  })
 
 '''
 @TODO implement endpoint
@@ -44,7 +45,15 @@ def get_drinks():
     returns status code 200 and json {"success": True, "drinks": drinks} where drinks is the list of drinks
         or appropriate status code indicating reason for failure
 '''
-
+@app.route("/drinks-detail")
+@requires_auth("get:drinks-detail")
+def get_drinks_detail(token):
+    drinks = list(map(Drink.long, Drink.query.all()))
+    result = {
+        "success": True,
+        "drinks": drinks
+    }
+    return jsonify(result)
 
 '''
 @TODO implement endpoint
@@ -55,7 +64,30 @@ def get_drinks():
     returns status code 200 and json {"success": True, "drinks": drink} where drink an array containing only the newly created drink
         or appropriate status code indicating reason for failure
 '''
+@app.route('/drinks', methods=['POST'])
+@requires_auth("post:drinks")
+def post_drink(token):
+  body = request.get_json()
 
+  title = body.get('title')
+  recipe = body.get('recipe')
+
+  print(json.dumps(recipe))
+ 
+  new_drink = Drink(title=title, recipe=json.dumps([recipe]))
+  
+
+  try:
+    new_drink.insert()
+    drinks = list(map(Drink.long, Drink.query.all()))
+    
+    return jsonify({
+      "success": True,
+      "drinks": drinks
+    })
+  except SQLAlchemyError as error:
+    print(error)
+    abort(422)
 
 '''
 @TODO implement endpoint
@@ -68,8 +100,27 @@ def get_drinks():
     returns status code 200 and json {"success": True, "drinks": drink} where drink an array containing only the updated drink
         or appropriate status code indicating reason for failure
 '''
+@app.route('/drinks/<int:drink_id>', methods=['PATCH'])
+@requires_auth("patch:drinks")
+def update_drink(payload, drink_id):
+  body = request.get_json()
 
+  new_title = body.get('title')
+  new_recipe = body.get('recipe')
 
+  try:
+    drink = Drink.query.filter(Drink.id == drink_id).one_or_none()
+    drink.title = new_title
+    drink.new_recipe = json.dumps([new_recipe])
+    drink.update()
+    drinks = list(map(Drink.long, Drink.query.all()))
+
+    return jsonify({
+      "success": True,
+      "drinks": drinks
+    })
+  except:
+    abort(422)
 '''
 @TODO implement endpoint
     DELETE /drinks/<id>
@@ -80,8 +131,21 @@ def get_drinks():
     returns status code 200 and json {"success": True, "delete": id} where id is the id of the deleted record
         or appropriate status code indicating reason for failure
 '''
+@app.route('/drinks/<int:drink_id>', methods=['DELETE'])
+@requires_auth("delete:drinks")
+def delete_drink(payload, drink_id):
 
+  try:
+    drink = Drink.query.filter(Drink.id == drink_id).one_or_none()
+    drink.delete()
+    drinks = list(map(Drink.long, Drink.query.all()))
 
+    return jsonify({
+      "success": True,
+      "drinks": drinks
+    })
+  except:
+    abort(422)
 ## Error Handling
 '''
 Example error handling for unprocessable entity
@@ -109,9 +173,18 @@ def unprocessable(error):
 @TODO implement error handler for 404
     error handler should conform to general task above 
 '''
-
+@app.errorhandler(404)
+def method_not_allowed(error):
+  return jsonify({
+    "success": False,
+    "error": 404,
+    "message": "Not found"
+  }), 404
 
 '''
 @TODO implement error handler for AuthError
     error handler should conform to general task above 
 '''
+@app.errorhandler(AuthError)
+def auth_error(err):
+  return jsonify(err.error), err.status_code
